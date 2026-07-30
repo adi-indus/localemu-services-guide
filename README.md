@@ -1,6 +1,6 @@
 # LocalEmu AWS Services Configuration & Integration Guide
 
-A complete, step-by-step hands-on guide for configuring, testing, and integrating all core AWS services (**EC2, S3, Lambda, DynamoDB, SQS, SNS, RDS, EKS, Secrets Manager, SSM Parameter Store, IAM, API Gateway, CloudWatch**) locally using **LocalEmu**.
+A complete, step-by-step hands-on guide for configuring, testing, and integrating all core AWS infrastructure services (**EC2, S3, Lambda, DynamoDB, SQS, SNS, RDS, EKS, ELB/ALB, Route 53, VPC, CloudFront, Secrets Manager, SSM Parameter Store, IAM, API Gateway, CloudWatch**) locally using **LocalEmu**.
 
 ---
 
@@ -15,11 +15,15 @@ A complete, step-by-step hands-on guide for configuring, testing, and integratin
 - [5. Amazon SNS (Simple Notification Service)](#5-amazon-sns-simple-notification-service)
 - [6. Amazon EC2 (Elastic Compute Cloud)](#6-amazon-ec2-elastic-compute-cloud)
 - [7. Amazon EKS (Elastic Kubernetes Service)](#7-amazon-eks-elastic-kubernetes-service)
-- [8. AWS Secrets Manager & SSM Parameter Store](#8-aws-secrets-manager--ssm-parameter-store)
-- [9. AWS IAM (Identity & Access Management)](#9-aws-iam-identity--access-management)
-- [10. Amazon API Gateway](#10-amazon-api-gateway)
-- [11. Amazon CloudWatch (Logs & Metrics)](#11-amazon-cloudwatch-logs--metrics)
-- [12. Amazon RDS (Relational Database Service)](#12-amazon-rds-relational-database-service)
+- [8. Elastic Load Balancing (ALB / ELBv2)](#8-elastic-load-balancing-alb--elbv2)
+- [9. Amazon Route 53 (DNS Domain Management)](#9-amazon-route-53-dns-domain-management)
+- [10. Amazon VPC (Virtual Private Cloud & Networking)](#10-amazon-vpc-virtual-private-cloud--networking)
+- [11. Amazon CloudFront (CDN)](#11-amazon-cloudfront-cdn)
+- [12. AWS Secrets Manager & SSM Parameter Store](#12-aws-secrets-manager--ssm-parameter-store)
+- [13. AWS IAM (Identity & Access Management)](#13-aws-iam-identity--access-management)
+- [14. Amazon API Gateway](#14-amazon-api-gateway)
+- [15. Amazon CloudWatch (Logs & Metrics)](#15-amazon-cloudwatch-logs--metrics)
+- [16. Amazon RDS (Relational Database Service)](#16-amazon-rds-relational-database-service)
 
 ---
 
@@ -345,7 +349,142 @@ aws eks delete-cluster --name local-dev-cluster
 
 ---
 
-## 8. AWS Secrets Manager & SSM Parameter Store
+## 8. Elastic Load Balancing (ALB / ELBv2)
+
+### A. CLI Management
+
+```bash
+# 1. Create Target Group
+TG_ARN=$(aws elbv2 create-target-group \
+  --name web-target-group \
+  --protocol HTTP \
+  --port 80 \
+  --target-type instance \
+  --vpc-id vpc-12345678 \
+  --query 'TargetGroups[0].TargetGroupArn' --output text)
+
+echo "Target Group ARN: $TG_ARN"
+
+# 2. Register Instance Targets
+aws elbv2 register-targets \
+  --target-group-arn "$TG_ARN" \
+  --targets Id=i-1234567890abcdef0 Id=i-0987654321fedcba0
+
+# 3. Create Application Load Balancer (ALB)
+ALB_ARN=$(aws elbv2 create-load-balancer \
+  --name local-app-alb \
+  --subnets subnet-123456 subnet-654321 \
+  --security-groups sg-12345678 \
+  --query 'LoadBalancers[0].LoadBalancerArn' --output text)
+
+echo "ALB ARN: $ALB_ARN"
+
+# 4. Create HTTP Listener
+aws elbv2 create-listener \
+  --load-balancer-arn "$ALB_ARN" \
+  --protocol HTTP \
+  --port 80 \
+  --default-actions Type=forward,TargetGroupArn="$TG_ARN"
+
+# 5. List Load Balancers & Target Groups
+aws elbv2 describe-load-balancers
+aws elbv2 describe-target-groups
+```
+
+---
+
+## 9. Amazon Route 53 (DNS Domain Management)
+
+### A. CLI Management
+
+```bash
+# 1. Create Hosted Zone
+ZONE_ID=$(aws route53 create-hosted-zone \
+  --name localdev.internal \
+  --caller-reference "ref-$(date +%s)" \
+  --query 'HostedZone.Id' --output text)
+
+echo "Hosted Zone ID: $ZONE_ID"
+
+# 2. List Hosted Zones
+aws route53 list-hosted-zones
+
+# 3. Create A Record pointing domain to local IP
+cat << 'EOF' > record.json
+{
+  "Changes": [
+    {
+      "Action": "CREATE",
+      "ResourceRecordSet": {
+        "Name": "api.localdev.internal",
+        "Type": "A",
+        "TTL": 300,
+        "ResourceRecords": [{"Value": "127.0.0.1"}]
+      }
+    }
+  ]
+}
+EOF
+
+aws route53 change-resource-record-sets \
+  --hosted-zone-id "$ZONE_ID" \
+  --change-batch file://record.json
+
+# 4. List Record Sets
+aws route53 list-resource-record-sets --hosted-zone-id "$ZONE_ID"
+```
+
+---
+
+## 10. Amazon VPC (Virtual Private Cloud & Networking)
+
+### A. CLI Management
+
+```bash
+# 1. Create VPC
+VPC_ID=$(aws ec2 create-vpc --cidr-block 10.0.0.0/16 --query 'Vpc.VpcId' --output text)
+echo "VPC ID: $VPC_ID"
+
+# 2. Create Subnets
+SUBNET_PUBLIC=$(aws ec2 create-subnet --vpc-id "$VPC_ID" --cidr-block 10.0.1.0/24 --availability-zone us-east-1a --query 'Subnet.SubnetId' --output text)
+SUBNET_PRIVATE=$(aws ec2 create-subnet --vpc-id "$VPC_ID" --cidr-block 10.0.2.0/24 --availability-zone us-east-1b --query 'Subnet.SubnetId' --output text)
+
+# 3. Create Internet Gateway & Attach to VPC
+IGW_ID=$(aws ec2 create-internet-gateway --query 'InternetGateway.InternetGatewayId' --output text)
+aws ec2 attach-internet-gateway --vpc-id "$VPC_ID" --internet-gateway-id "$IGW_ID"
+
+# 4. Create Route Table & Route to Internet Gateway
+ROUTE_TABLE_ID=$(aws ec2 create-route-table --vpc-id "$VPC_ID" --query 'RouteTable.RouteTableId' --output text)
+aws ec2 create-route --route-table-id "$ROUTE_TABLE_ID" --destination-cidr-block 0.0.0.0/0 --gateway-id "$IGW_ID"
+
+# 5. Associate Route Table with Public Subnet
+aws ec2 associate-route-table --subnet-id "$SUBNET_PUBLIC" --route-table-id "$ROUTE_TABLE_ID"
+
+echo "VPC Setup Complete!"
+```
+
+---
+
+## 11. Amazon CloudFront (CDN)
+
+### A. CLI Management
+
+```bash
+# 1. Create Distribution for S3 Origin
+DIST_ID=$(aws cloudfront create-distribution \
+  --origin-domain-name app-uploads-local.s3.amazonaws.com \
+  --default-root-object index.html \
+  --query 'Distribution.Id' --output text)
+
+echo "CloudFront Distribution ID: $DIST_ID"
+
+# 2. List Distributions
+aws cloudfront list-distributions
+```
+
+---
+
+## 12. AWS Secrets Manager & SSM Parameter Store
 
 ### A. Secrets Manager
 
@@ -382,7 +521,7 @@ aws ssm get-parameter --name "/config/app/jwt_secret" --with-decryption
 
 ---
 
-## 9. AWS IAM (Identity & Access Management)
+## 13. AWS IAM (Identity & Access Management)
 
 ```bash
 # 1. Create IAM User
@@ -399,7 +538,7 @@ aws iam create-access-key --user-name dev-app-worker
 
 ---
 
-## 10. Amazon API Gateway
+## 14. Amazon API Gateway
 
 ```bash
 # 1. Create REST API
@@ -425,7 +564,7 @@ echo "API Gateway Endpoint: http://localhost:4566/restapis/$API_ID/dev/_user_req
 
 ---
 
-## 11. Amazon CloudWatch (Logs & Metrics)
+## 15. Amazon CloudWatch (Logs & Metrics)
 
 ```bash
 # 1. Create Log Group
@@ -446,7 +585,7 @@ aws logs get-log-events --log-group-name /aws/app/backend-service --log-stream-n
 
 ---
 
-## 12. Amazon RDS (Relational Database Service)
+## 16. Amazon RDS (Relational Database Service)
 
 ```bash
 # Describe DB Instances in LocalEmu
