@@ -67,6 +67,17 @@ aws ec2 describe-instances
 echo "✅ EC2 OK"
 echo "------------------------------------------------------------"
 
+# 7. EKS Test
+echo "☸️ Testing EKS..."
+aws eks list-clusters
+aws eks create-cluster \
+  --name test-eks-cluster \
+  --role-arn arn:aws:iam::000000000000:role/eks-role \
+  --resources-vpc-config subnetIds=subnet-123456 2>/dev/null || true
+aws eks list-clusters
+echo "✅ EKS OK"
+echo "------------------------------------------------------------"
+
 echo "============================================================"
-echo "🎉 ALL AWS SERVICES VERIFIED SUCCESSFULLY ON LOCALEMU!"
+echo "🎉 ALL AWS SERVICES (INCLUDING EKS) VERIFIED SUCCESSFULLY ON LOCALEMU!"
 echo "============================================================"

@@ -1,6 +1,6 @@
 # LocalEmu AWS Services Configuration & Integration Guide
 
-A complete, step-by-step hands-on guide for configuring, testing, and integrating all core AWS services (**EC2, S3, Lambda, DynamoDB, SQS, SNS, RDS, Secrets Manager, SSM Parameter Store, IAM, API Gateway, CloudWatch**) locally using **LocalEmu**.
+A complete, step-by-step hands-on guide for configuring, testing, and integrating all core AWS services (**EC2, S3, Lambda, DynamoDB, SQS, SNS, RDS, EKS, Secrets Manager, SSM Parameter Store, IAM, API Gateway, CloudWatch**) locally using **LocalEmu**.
 
 ---
 
@@ -14,12 +14,12 @@ A complete, step-by-step hands-on guide for configuring, testing, and integratin
 - [4. Amazon SQS (Simple Queue Service)](#4-amazon-sqs-simple-queue-service)
 - [5. Amazon SNS (Simple Notification Service)](#5-amazon-sns-simple-notification-service)
 - [6. Amazon EC2 (Elastic Compute Cloud)](#6-amazon-ec2-elastic-compute-cloud)
-- [7. AWS Secrets Manager & SSM Parameter Store](#7-aws-secrets-manager--ssm-parameter-store)
-- [8. AWS IAM (Identity & Access Management)](#8-aws-iam-identity--access-management)
-- [9. Amazon API Gateway](#9-amazon-api-gateway)
-- [10. Amazon CloudWatch (Logs & Metrics)](#10-amazon-cloudwatch-logs--metrics)
-- [11. Amazon RDS (Relational Database Service)](#11-amazon-rds-relational-database-service)
-- [Complete Interactive Test Script](#complete-interactive-test-script)
+- [7. Amazon EKS (Elastic Kubernetes Service)](#7-amazon-eks-elastic-kubernetes-service)
+- [8. AWS Secrets Manager & SSM Parameter Store](#8-aws-secrets-manager--ssm-parameter-store)
+- [9. AWS IAM (Identity & Access Management)](#9-aws-iam-identity--access-management)
+- [10. Amazon API Gateway](#10-amazon-api-gateway)
+- [11. Amazon CloudWatch (Logs & Metrics)](#11-amazon-cloudwatch-logs--metrics)
+- [12. Amazon RDS (Relational Database Service)](#12-amazon-rds-relational-database-service)
 
 ---
 
@@ -298,7 +298,54 @@ aws ec2 terminate-instances --instance-ids "$INSTANCE_ID"
 
 ---
 
-## 7. AWS Secrets Manager & SSM Parameter Store
+## 7. Amazon EKS (Elastic Kubernetes Service)
+
+LocalEmu supports creating, describing, and deleting local EKS clusters as well as generating kubeconfig files to interact with Kubernetes APIs using `kubectl`.
+
+### A. CLI Management
+
+```bash
+# 1. Create IAM Role for EKS Cluster
+aws iam create-role \
+  --role-name eks-cluster-role \
+  --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"eks.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
+
+# 2. Create EKS Cluster
+aws eks create-cluster \
+  --name local-dev-cluster \
+  --role-arn arn:aws:iam::000000000000:role/eks-cluster-role \
+  --resources-vpc-config subnetIds=subnet-123456,subnet-654321
+
+# 3. List EKS Clusters
+aws eks list-clusters
+
+# 4. Describe EKS Cluster Status
+aws eks describe-cluster --name local-dev-cluster
+
+# 5. Create EKS Managed Node Group
+aws eks create-nodegroup \
+  --cluster-name local-dev-cluster \
+  --nodegroup-name worker-nodes-1 \
+  --subnets subnet-123456 \
+  --node-role arn:aws:iam::000000000000:role/eks-node-role
+
+# 6. Describe Node Group
+aws eks describe-nodegroup --cluster-name local-dev-cluster --nodegroup-name worker-nodes-1
+
+# 7. Update Kubeconfig to use with kubectl
+aws eks update-kubeconfig --name local-dev-cluster --kubeconfig ~/.kube/config-localemu
+
+# 8. Test kubectl connection
+kubectl --kubeconfig ~/.kube/config-localemu get nodes
+
+# 9. Clean up EKS resources
+aws eks delete-nodegroup --cluster-name local-dev-cluster --nodegroup-name worker-nodes-1
+aws eks delete-cluster --name local-dev-cluster
+```
+
+---
+
+## 8. AWS Secrets Manager & SSM Parameter Store
 
 ### A. Secrets Manager
 
@@ -335,7 +382,7 @@ aws ssm get-parameter --name "/config/app/jwt_secret" --with-decryption
 
 ---
 
-## 8. AWS IAM (Identity & Access Management)
+## 9. AWS IAM (Identity & Access Management)
 
 ```bash
 # 1. Create IAM User
@@ -352,7 +399,7 @@ aws iam create-access-key --user-name dev-app-worker
 
 ---
 
-## 9. Amazon API Gateway
+## 10. Amazon API Gateway
 
 ```bash
 # 1. Create REST API
@@ -378,7 +425,7 @@ echo "API Gateway Endpoint: http://localhost:4566/restapis/$API_ID/dev/_user_req
 
 ---
 
-## 10. Amazon CloudWatch (Logs & Metrics)
+## 11. Amazon CloudWatch (Logs & Metrics)
 
 ```bash
 # 1. Create Log Group
@@ -399,7 +446,7 @@ aws logs get-log-events --log-group-name /aws/app/backend-service --log-stream-n
 
 ---
 
-## 11. Amazon RDS (Relational Database Service)
+## 12. Amazon RDS (Relational Database Service)
 
 ```bash
 # Describe DB Instances in LocalEmu
