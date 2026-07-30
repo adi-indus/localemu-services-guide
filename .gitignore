@@ -1,0 +1,13 @@
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temp test files
+/tmp/s3_test.txt
+*.pem
+*.zip
+response.json
+cors.json
+downloaded.txt
+sample.txt
+EOF
